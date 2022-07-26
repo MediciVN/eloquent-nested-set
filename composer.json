@@ -1,0 +1,36 @@
+{
+    "name": "medicivn/eloquent-nested-set",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "MediciVN\\EloquentNestedSet\\": "src/",
+            "MediciVN\\EloquentNestedSet\\Tests\\": "tests/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Medici Dev"
+        }
+    ],
+    "require": {
+        "php": "^8.1",
+        "illuminate/contracts": "^9.21",
+        "illuminate/database": "^9.21",
+        "illuminate/queue": "^9.21",
+        "illuminate/bus": "^9.21"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.5",
+        "orchestra/testbench": "^7.6",
+        "nunomaduro/collision": "^6.2",
+        "laravel/legacy-factories": "^1.3"
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "@php ./vendor/bin/testbench package:discover --ansi"
+        ],
+        "test": [
+            "./vendor/bin/testbench package:test"
+        ]
+    }
+}
