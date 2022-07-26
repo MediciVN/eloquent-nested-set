@@ -141,7 +141,7 @@ trait NestedSetModel
      */
     public function handleEvent($event, ...$arguments): void
     {
-        $job = new NestedSetModelJob($this, $event, ...$arguments);
+        $job = new NestedSetModelJob($this, $event, $arguments);
 
         if (!static::queueEnabled()) {
             $job->handle(); // run immediately

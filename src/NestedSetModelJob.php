@@ -38,7 +38,7 @@ class NestedSetModelJob implements ShouldQueue
      *
      * @return void
      */
-    public function __construct($model, $event, ...$arguments)
+    public function __construct($model, $event, $arguments)
     {
         $this->model = $model;
         $this->event = $event;
