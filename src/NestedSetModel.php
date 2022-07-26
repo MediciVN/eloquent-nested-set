@@ -2,7 +2,6 @@
 
 namespace MediciVN\EloquentNestedSet;
 
-use Closure;
 use Exception;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -136,20 +135,18 @@ trait NestedSetModel
     }
 
     /**
-     * Put callback into queue if a queue connection is provided
-     * Otherwise, run immediately
-     *
-     * @param Closure $callback
+     * @param string $event
+     * @param $arguments
      * @return void
      */
-    public static function instantOrQueue(Closure $callback): void
+    public function handleEvent($event, ...$arguments): void
     {
+        $job = new NestedSetModelJob($this, $event, ...$arguments);
+
         if (!static::queueEnabled()) {
-            $callback();
+            $job->handle(); // run immediately
             return;
         }
-
-        $job = NestedSetModelJob::dispatch($callback);
 
         if (static::queueConnection()) {
             $job->onConnection(static::queueConnection());
@@ -160,6 +157,8 @@ trait NestedSetModel
         if (static::queueAfterCommit()) {
             $job->afterCommit();
         }
+
+        dispatch($job);
     }
 
     /**
@@ -188,9 +187,7 @@ trait NestedSetModel
         });
 
         static::created(function (Model $model) {
-            static::instantOrQueue(function () use ($model) {
-                $model->handleTreeOnCreated();
-            });
+            $model->handleEvent('created');
         });
 
         static::updated(function (Model $model) {
@@ -201,17 +198,12 @@ trait NestedSetModel
                 // When run with queue, the new lft, rgt and parent_id will be assigned after calculation
                 // so keep the old parent_id
                 $model->{static::parentIdColumn()} = $oldParentId;
-
-                static::instantOrQueue(function () use ($model, $newParentId) {
-                    $model->handleTreeOnUpdated($newParentId);
-                });
+                $model->handleEvent('updated', $newParentId);
             }
         });
 
         static::deleting(function (Model $model) {
-            static::instantOrQueue(function () use ($model) {
-                $model->handleTreeOnDeleting();
-            });
+            $model->handleEvent('deleting');
         });
     }
 
