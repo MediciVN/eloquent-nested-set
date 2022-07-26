@@ -2,11 +2,11 @@
 
 namespace MediciVN\EloquentNestedSet;
 
-use Closure;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\QueueableCollection;
 use Illuminate\Contracts\Queue\QueueableEntity;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
@@ -17,18 +17,32 @@ class NestedSetModelJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     /**
-     * @var Closure
+     * The model using NestedSetModel trait
+     * 
+     * @var Model
      */
-    protected Closure $callback;
+    protected Model $model;
+
+    /**
+     * @var string
+     */
+    protected string $event;
+
+    /**
+     * @var array
+     */
+    protected array $arguments;
 
     /**
      * Create a new job instance.
      *
      * @return void
      */
-    public function __construct(Closure $callback)
+    public function __construct($model, $event, ...$arguments)
     {
-        $this->callback = $callback;
+        $this->model = $model;
+        $this->event = $event;
+        $this->arguments = $arguments;
     }
 
     /**
@@ -38,8 +52,11 @@ class NestedSetModelJob implements ShouldQueue
      */
     public function handle(): void
     {
-        $callback = $this->callback;
-        $callback();
+        match ($this->event) {
+            'created'  => $this->model->handleTreeOnCreated(...$this->arguments),
+            'updated'  => $this->model->handleTreeOnUpdated(...$this->arguments),
+            'deleting' => $this->model->handleTreeOnDeleting(...$this->arguments),
+        };
     }
 
     /**
