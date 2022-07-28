@@ -107,6 +107,16 @@ trait NestedSetModel
     }
 
     /**
+     * Get table name
+     *
+     * @return string
+     */
+    public static function tableName(): string
+    {
+        return (new static)->getTable();
+    }
+
+    /**
      * get primary column name
      *
      * @return string
@@ -176,7 +186,7 @@ trait NestedSetModel
 
         // Ignore root node in global scope
         static::addGlobalScope('ignore_root', function (Builder $builder) {
-            $builder->where(static::primaryColumn(), '<>', static::rootId());
+            $builder->where(static::tableName() . '.' . static::primaryColumn(), '<>', static::rootId());
         });
 
         // set default parent_id is root's id
