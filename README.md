@@ -7,7 +7,7 @@ How to use:
 - First, a root node must be initialized in your model's table
 - Add `use NestedSetModel;` to your eloquent model, example:
 
-```injectablephp
+```php
 
 use MediciVN\EloquentNestedSet\NestedSetModel;
 
@@ -108,3 +108,20 @@ To get the `root` node, use `withoutGlobalScope('ignore_root')`.
 
 - If you are using `SoftDelete` and intend to stop using it, you must deal with soft deleted records.
   The tree will be shuffled, and the calculation of lft and rgt may go wrong.
+
+- If you want to use FIFO SQS, you should set the queue driver to `sqs-fifo` for your connection in `queue.php` file
+  ```php
+  'sqs-fifo' => [
+    'driver' => 'sqs-fifo',
+    'key' => env('SQS_KEY'),
+    'secret' => env('SQS_SECRET'),
+    'prefix' => env('SQS_PREFIX'),
+    'suffix' => env('SQS_SUFFIX'),
+    'queue' => 'your-queue-name',    // ex: queuename.fifo
+    'region' => 'your-queue-region', // ex: us-east-2
+    'group' => 'default',
+    'deduplicator' => 'unique',
+    'allow_delay' => env('SQS_ALLOW_DELAY'),
+  ]
+  ```
+  See the configuration of [this package](https://github.com/shiftonelabs/laravel-sqs-fifo-queue#configuration)
