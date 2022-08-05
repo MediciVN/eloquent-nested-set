@@ -330,6 +330,74 @@ class NestedSetModelTest extends TestCase
     }
 
     /** @test */
+    public function it_can_return_nested_tree_with_root_node()
+    {
+        Category::factory()->createMany([
+            ["name" => "Category 2"],
+            ["name" => "Category 3"],
+            ["name" => "Category 4"],
+            ["name" => "Category 5"],
+            ["name" => "Category 6"],
+            ["name" => "Category 7", "parent_id" => 3],
+            ["name" => "Category 8", "parent_id" => 3],
+            ["name" => "Category 9", "parent_id" => 3],
+            ["name" => "Category 10", "parent_id" => 3],
+            ["name" => "Category 11", "parent_id" => 5],
+            ["name" => "Category 12", "parent_id" => 5],
+            ["name" => "Category 13", "parent_id" => 6],
+            ["name" => "Category 14", "parent_id" => 2],
+            ["name" => "Category 15", "parent_id" => 2],
+            ["name" => "Category 16", "parent_id" => 10],
+            ["name" => "Category 17", "parent_id" => 10],
+            ["name" => "Category 18", "parent_id" => 10]
+        ]);
+
+        $tree = Category::buildNestedTree(Category::withoutGlobalScope('ignore_root')->flattenTree()->get());
+        $root = Category::withoutGlobalScope('ignore_root')->find(Category::ROOT_ID);
+        $c2 = Category::where('name', 'Category 2')->first();
+        $c3 = Category::where('name', 'Category 3')->first();
+        $c4 = Category::where('name', 'Category 4')->first();
+        $c5 = Category::where('name', 'Category 5')->first();
+        $c6 = Category::where('name', 'Category 6')->first();
+        $c7 = Category::where('name', 'Category 7')->first();
+        $c8 = Category::where('name', 'Category 8')->first();
+        $c9 = Category::where('name', 'Category 9')->first();
+        $c10 = Category::where('name', 'Category 10')->first();
+        $c11 = Category::where('name', 'Category 11')->first();
+        $c12 = Category::where('name', 'Category 12')->first();
+        $c13 = Category::where('name', 'Category 13')->first();
+        $c14 = Category::where('name', 'Category 14')->first();
+        $c15 = Category::where('name', 'Category 15')->first();
+        $c16 = Category::where('name', 'Category 16')->first();
+        $c17 = Category::where('name', 'Category 17')->first();
+        $c18 = Category::where('name', 'Category 18')->first();
+
+        $this->assertEquals($root->id, $tree[0]->id);
+        $this->assertEquals($root->children[0]->id, $c2->id);
+        $this->assertEquals($root->children[1]->id, $c3->id);
+        $this->assertEquals($root->children[2]->id, $c4->id);
+        $this->assertEquals($root->children[3]->id, $c5->id);
+        $this->assertEquals($root->children[4]->id, $c6->id);
+
+        $this->assertEquals($c2->children[0]->toArray(), $c14->toArray());
+        $this->assertEquals($c2->children[1]->toArray(), $c15->toArray());
+        //
+        $this->assertEquals($c3->children[0]->toArray(), $c7->toArray());
+        $this->assertEquals($c3->children[1]->toArray(), $c8->toArray());
+        $this->assertEquals($c3->children[2]->toArray(), $c9->toArray());
+        $this->assertEquals($c3->children[3]->toArray(), $c10->toArray());
+        //
+        $this->assertEquals($c10->children[0]->toArray(), $c16->toArray());
+        $this->assertEquals($c10->children[1]->toArray(), $c17->toArray());
+        $this->assertEquals($c10->children[2]->toArray(), $c18->toArray());
+        //
+        $this->assertEquals($c5->children[0]->toArray(), $c11->toArray());
+        $this->assertEquals($c5->children[1]->toArray(), $c12->toArray());
+        //
+        $this->assertEquals($c6->children[0]->toArray(), $c13->toArray());
+    }
+
+    /** @test */
     public function it_can_return_ancestors_tree()
     {
         $c2 = Category::factory()->create(["name" => "Category 2"]);
