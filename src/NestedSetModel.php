@@ -337,7 +337,7 @@ trait NestedSetModel
 
         $getChildrenFunc = function ($tree) use (&$getChildrenFunc, $groupNodes) {
             foreach ($tree as $item) {
-                $item->children = $groupNodes->get($item->id, []);
+                $item->children = $groupNodes->get($item->{static::primaryColumn()}, []);
                 $getChildrenFunc($item->children);
             }
         };
@@ -495,8 +495,8 @@ trait NestedSetModel
             // Khi dùng queue, cần lấy lft và rgt mới nhất trong DB ra tính toán.
             $this->refresh();
 
-            if ($newParentId == $this->id || $this->hasDescendant($newParentId)) {
-                throw new NestedSetModelException("The given parent's id is invalid");
+            if ($newParentId == $this->{static::primaryColumn()} || $this->hasDescendant($newParentId)) {
+                throw new NestedSetModelException("The given parent's " . static::primaryColumn() . " is invalid");
             }
 
             $newParent      = static::withoutGlobalScope('ignore_root')->findOrFail($newParentId);
@@ -504,7 +504,7 @@ trait NestedSetModel
             $currentRgt     = $this->{static::rightColumn()};
             $currentDepth   = $this->{static::depthColumn()};
             $width          = $this->getWidth();
-            $query          = static::withoutGlobalScope('ignore_root')->whereNot(static::primaryColumn(), $this->id);
+            $query          = static::withoutGlobalScope('ignore_root')->whereNot(static::primaryColumn(), $this->{static::primaryColumn()});
 
             // Tạm thời để left và right các node con của node hiện tại ở giá trị âm
             $this->descendants()->update([
