@@ -815,6 +815,46 @@ class NestedSetModelTest extends TestCase
     }
 
     /** @test */
+    public function it_can_assign_correct_parent_id_for_children_nodes_when_delete()
+    {
+        $root = Category::withoutGlobalScope('ignore_root')->find(Category::ROOT_ID);
+        $this->assertEquals([1, 2], [$root->lft, $root->rgt]);
+
+        $c2 = Category::factory()->createOne(["name" => "Category 2"]);
+        $c3 = Category::factory()->createOne(["name" => "Category 3", "parent_id" => $c2->id]);
+        $c4 = Category::factory()->createOne(["name" => "Category 4", "parent_id" => $c3->id]);
+        $c5 = Category::factory()->createOne(["name" => "Category 5", "parent_id" => $c4->id]);
+
+        $root->refresh();
+        $c2->refresh();
+        $c3->refresh();
+        $c4->refresh();
+        $c5->refresh();
+
+        $this->assertEquals([1, 10], [$root->lft, $root->rgt]);
+        $this->assertEquals([Category::ROOT_ID, 1, 'Category 2', 2, 9], [$c2->parent_id, $c2->depth, $c2->name, $c2->lft, $c2->rgt]);
+        $this->assertEquals([$c2->id, 2, 'Category 3', 3, 8], [$c3->parent_id, $c3->depth, $c3->name, $c3->lft, $c3->rgt]);
+        $this->assertEquals([$c3->id, 3, 'Category 4', 4, 7], [$c4->parent_id, $c4->depth, $c4->name, $c4->lft, $c4->rgt]);
+        $this->assertEquals([$c4->id, 4, 'Category 5', 5, 6], [$c5->parent_id, $c5->depth, $c5->name, $c5->lft, $c5->rgt]);
+
+        /**
+         * Xóa node c2, kỳ vọng node c3 sẽ được kế thừa parent_id của c2
+         * và các node con cháu của c2 được tính toán left, right đúng
+         */
+        $c2->delete();
+
+        $root->refresh();
+        $c3->refresh();
+        $c4->refresh();
+        $c5->refresh();
+
+        $this->assertEquals([1, 8], [$root->lft, $root->rgt]);
+        $this->assertEquals([Category::ROOT_ID, 1, 'Category 3', 2, 7], [$c3->parent_id, $c3->depth, $c3->name, $c3->lft, $c3->rgt]);
+        $this->assertEquals([$c3->id, 2, 'Category 4', 3, 6], [$c4->parent_id, $c4->depth, $c4->name, $c4->lft, $c4->rgt]);
+        $this->assertEquals([$c4->id, 3, 'Category 5', 4, 5], [$c5->parent_id, $c5->depth, $c5->name, $c5->lft, $c5->rgt]);
+    }
+
+    /** @test */
     public function it_can_calculate_rightly_lft_rgt_depth_when_delete()
     {
         $root = Category::withoutGlobalScope('ignore_root')->find(Category::ROOT_ID);
