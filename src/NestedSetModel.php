@@ -571,8 +571,11 @@ trait NestedSetModel
             $this->refresh();
 
             // move the child nodes to the parent node of the deleted node
-            $this->descendants()->update([
+            $this->children()->update([
                 static::parentIdColumn() => $this->{static::parentIdColumn()},
+            ]);
+
+            $this->descendants()->update([
                 static::leftColumn() => DB::raw(static::leftColumn() . " - 1"),
                 static::rightColumn() => DB::raw(static::rightColumn() . " - 1"),
                 static::depthColumn() => DB::raw(static::depthColumn() . " - 1"),
