@@ -318,32 +318,84 @@ trait NestedSetModel
     }
 
     /**
-     * Build a nested tree
+     * Build a nested tree based on parent's id
      *
      * @param Collection $nodes
      * @return Collection
      */
-    public static function buildNestedTree(Collection $nodes): Collection
+    public static function buildNestedTree(Collection|array $nodes): Collection
     {
-        $tree           = collect([]);
-        $groupNodes     = $nodes->groupBy(static::parentIdColumn());
-        $ids            = $nodes->pluck(static::primaryColumn());
-        $parentIds      = $nodes->pluck(static::parentIdColumn());
-        $topParentIds   = $parentIds->diff($ids)->unique();
+        $tree = $ids = $parentIds = $groupNodes = [];
 
-        $topParentIds->each(function ($id) use ($tree, $groupNodes) {
-            $tree->push(...$groupNodes->get($id, []));
-        });
+        foreach ($nodes as $node) {
+            $ids[]                   = $node->{static::primaryColumn()};
+            $parentId                = $node->{static::parentIdColumn()};
+            $parentIds[]             = $parentId;
+            $groupNodes[$parentId][] = $node;
+        }
 
-        $getChildrenFunc = function ($tree) use (&$getChildrenFunc, $groupNodes) {
-            foreach ($tree as $item) {
-                $item->children = $groupNodes->get($item->{static::primaryColumn()}, []);
-                $getChildrenFunc($item->children);
+        $topParentIds = array_unique(array_diff($parentIds, $ids), SORT_REGULAR);
+
+        foreach ($topParentIds as $topParentId) {
+            array_push($tree, ...($groupNodes[$topParentId] ?? []));
+        }
+
+        $getChildrenFunc = function ($nodes) use (&$getChildrenFunc, $groupNodes) {
+            foreach ($nodes as $node) {
+                $node->setRelation('children', collect($groupNodes[$node->{static::primaryColumn()}] ?? []));
+                $getChildrenFunc($node->children);
             }
         };
 
         $getChildrenFunc($tree);
-        return $tree;
+
+        return collect($tree);
+    }
+
+    /**
+     * Fix tree base on parent's id
+     * 
+     * @return void
+     */
+    public static function fixTree(): void
+    {
+        $nodes = static::withoutGlobalScope('ignore_root')->get();
+        $tree  = static::buildNestedTree($nodes);
+
+        $fixPositionFunc = function ($node) use (&$fixPositionFunc) {
+            $children      = $node->children->all();
+            $childrenCount = count($children);
+
+            if (!$childrenCount) {
+                $node->{static::rightColumn()} = $node->{static::leftColumn()} + 1;
+                $node->savePositionQuietly();
+                return;
+            }
+
+            $firstChild = $children[0];
+            $firstChild->{static::depthColumn()} = $node->{static::depthColumn()} + 1;
+            $firstChild->{static::leftColumn()}  = $node->{static::leftColumn()} + 1;
+            $firstChild->{static::rightColumn()} = $firstChild->{static::leftColumn()} + 1;
+            $fixPositionFunc($firstChild);
+
+            for ($i = 1; $i < $childrenCount; $i++) {
+                $child = $children[$i];
+                $child->{static::depthColumn()} = $node->{static::depthColumn()} + 1;
+                $child->{static::leftColumn()}  = $children[$i - 1]->{static::rightColumn()} + 1;
+                $child->{static::rightColumn()} = $child->{static::leftColumn()} + 1;
+                $fixPositionFunc($child);
+            }
+
+            $lastChild = $children[$childrenCount - 1];
+            $node->{static::rightColumn()} = $lastChild->{static::rightColumn()} + 1;
+            $node->savePositionQuietly();
+        };
+
+        $root = $tree[0];
+        $root->{static::leftColumn()}  = 1;
+        $root->{static::rightColumn()} = 2;
+        $root->{static::depthColumn()} = 0;
+        $fixPositionFunc($root);
     }
 
     /**
@@ -439,12 +491,13 @@ trait NestedSetModel
      */
     public function savePositionQuietly(): Model
     {
-        static::where(static::primaryColumn(), '=', $this->{static::primaryColumn()})
+        static::withoutGlobalScope('ignore_root')
+            ->where(static::primaryColumn(), '=', $this->{static::primaryColumn()})
             ->update([
-                static::leftColumn() => $this->{static::leftColumn()},
-                static::rightColumn() => $this->{static::rightColumn()},
+                static::leftColumn()     => $this->{static::leftColumn()},
+                static::rightColumn()    => $this->{static::rightColumn()},
                 static::parentIdColumn() => $this->{static::parentIdColumn()},
-                static::depthColumn() => $this->{static::depthColumn()},
+                static::depthColumn()    => $this->{static::depthColumn()},
             ]);
 
         return $this;
@@ -458,10 +511,10 @@ trait NestedSetModel
     {
         try {
             DB::beginTransaction();
-            // Khi dùng queue, cần lấy lft và rgt mới nhất trong DB ra tính toán.
             $this->refresh();
-            $parent     = static::withoutGlobalScope('ignore_root')->findOrFail($this->{static::parentIdColumn()});
-            $parentRgt  = $parent->{static::rightColumn()};
+
+            $parent    = static::withoutGlobalScope('ignore_root')->findOrFail($this->{static::parentIdColumn()});
+            $parentRgt = $parent->{static::rightColumn()};
 
             // Tạo khoảng trống cho node hiện tại ở node cha mới, cập nhật các node bên phải của node cha mới
             static::withoutGlobalScope('ignore_root')
@@ -472,9 +525,9 @@ trait NestedSetModel
                 ->update([static::leftColumn() => DB::raw(static::leftColumn() . " + 2")]);
 
             // Node mới sẽ được thêm vào sau (bên phải) các nodes cùng cha
-            $this->{static::depthColumn()}  = $parent->{static::depthColumn()} + 1;
-            $this->{static::leftColumn()}   = $parentRgt;
-            $this->{static::rightColumn()}  = $parentRgt + 1;
+            $this->{static::depthColumn()} = $parent->{static::depthColumn()}+1;
+            $this->{static::leftColumn()}  = $parentRgt;
+            $this->{static::rightColumn()} = $parentRgt + 1;
             $this->savePositionQuietly();
             DB::commit();
         } catch (Throwable $th) {
@@ -492,23 +545,22 @@ trait NestedSetModel
     {
         try {
             DB::beginTransaction();
-            // Khi dùng queue, cần lấy lft và rgt mới nhất trong DB ra tính toán.
             $this->refresh();
 
             if ($newParentId == $this->{static::primaryColumn()} || $this->hasDescendant($newParentId)) {
                 throw new NestedSetModelException("The given parent's " . static::primaryColumn() . " is invalid");
             }
 
-            $newParent      = static::withoutGlobalScope('ignore_root')->findOrFail($newParentId);
-            $currentLft     = $this->{static::leftColumn()};
-            $currentRgt     = $this->{static::rightColumn()};
-            $currentDepth   = $this->{static::depthColumn()};
-            $width          = $this->getWidth();
-            $query          = static::withoutGlobalScope('ignore_root')->whereNot(static::primaryColumn(), $this->{static::primaryColumn()});
+            $newParent    = static::withoutGlobalScope('ignore_root')->findOrFail($newParentId);
+            $currentLft   = $this->{static::leftColumn()};
+            $currentRgt   = $this->{static::rightColumn()};
+            $currentDepth = $this->{static::depthColumn()};
+            $width        = $this->getWidth();
+            $query        = static::withoutGlobalScope('ignore_root')->whereNot(static::primaryColumn(), $this->{static::primaryColumn()});
 
             // Tạm thời để left và right các node con của node hiện tại ở giá trị âm
             $this->descendants()->update([
-                static::leftColumn() => DB::raw(static::leftColumn() . " * (-1)"),
+                static::leftColumn()  => DB::raw(static::leftColumn() . " * (-1)"),
                 static::rightColumn() => DB::raw(static::rightColumn() . " * (-1)"),
             ]);
 
@@ -534,20 +586,20 @@ trait NestedSetModel
                 ->update([static::leftColumn() => DB::raw(static::leftColumn() . " + $width")]);
 
             // Cập nhật lại node hiện tại theo node cha mới
-            $this->{static::depthColumn()}      = $newParent->{static::depthColumn()} + 1;
-            $this->{static::parentIdColumn()}   = $newParentId;
-            $this->{static::leftColumn()}       = $newParentRgt;
-            $this->{static::rightColumn()}      = $newParentRgt + $width - 1;
+            $this->{static::depthColumn()}    = $newParent->{static::depthColumn()}+1;
+            $this->{static::parentIdColumn()} = $newParentId;
+            $this->{static::leftColumn()}     = $newParentRgt;
+            $this->{static::rightColumn()}    = $newParentRgt + $width - 1;
             $this->savePositionQuietly();
 
             // Cập nhật lại các node con có left và right âm
-            $distance       = $this->{static::rightColumn()} - $currentRgt;
-            $depthChange    = $this->{static::depthColumn()} - $currentDepth;
+            $distance    = $this->{static::rightColumn()} - $currentRgt;
+            $depthChange = $this->{static::depthColumn()} - $currentDepth;
 
             static::where(static::leftColumn(), '<', 0 - $currentLft)
                 ->where(static::rightColumn(), '>', 0 - $currentRgt)
                 ->update([
-                    static::leftColumn() => DB::raw("ABS(" . static::leftColumn() . ") + $distance"),
+                    static::leftColumn()  => DB::raw("ABS(" . static::leftColumn() . ") + $distance"),
                     static::rightColumn() => DB::raw("ABS(" . static::rightColumn() . ") + $distance"),
                     static::depthColumn() => DB::raw(static::depthColumn() . " + $depthChange"),
                 ]);
@@ -576,7 +628,7 @@ trait NestedSetModel
             ]);
 
             $this->descendants()->update([
-                static::leftColumn() => DB::raw(static::leftColumn() . " - 1"),
+                static::leftColumn()  => DB::raw(static::leftColumn() . " - 1"),
                 static::rightColumn() => DB::raw(static::rightColumn() . " - 1"),
                 static::depthColumn() => DB::raw(static::depthColumn() . " - 1"),
             ]);
