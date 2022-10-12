@@ -1068,4 +1068,53 @@ class NestedSetModelTest extends TestCase
         $c3->refresh();
         $this->assertEquals("Category 333", $c3->name);
     }
+
+    /** @test */
+    public function it_can_fix_tree()
+    {
+        Category::insert([
+            ["name" => "Category 2", "slug" => "category-2", "parent_id" => Category::rootId()],
+            ["name" => "Category 3", "slug" => "category-3", "parent_id" => Category::rootId()],
+            ["name" => "Category 4", "slug" => "category-4", "parent_id" => Category::rootId()],
+            ["name" => "Category 5", "slug" => "category-5", "parent_id" => Category::rootId()],
+            ["name" => "Category 6", "slug" => "category-6", "parent_id" => Category::rootId()],
+            ["name" => "Category 7", "slug" => "category-7", "parent_id" => 3],
+            ["name" => "Category 8", "slug" => "category-8", "parent_id" => 3],
+            ["name" => "Category 9", "slug" => "category-9", "parent_id" => 3],
+            ["name" => "Category 10", "slug" => "category-10", "parent_id" => 3],
+            ["name" => "Category 11", "slug" => "category-11", "parent_id" => 5],
+            ["name" => "Category 12", "slug" => "category-12", "parent_id" => 5],
+            ["name" => "Category 13", "slug" => "category-13", "parent_id" => 6],
+            ["name" => "Category 14", "slug" => "category-14", "parent_id" => 2],
+            ["name" => "Category 15", "slug" => "category-15", "parent_id" => 2],
+            ["name" => "Category 16", "slug" => "category-16", "parent_id" => 10],
+            ["name" => "Category 17", "slug" => "category-17", "parent_id" => 10],
+            ["name" => "Category 18", "slug" => "category-18", "parent_id" => 10]
+        ]);
+
+        Category::fixTree();
+
+        $root = Category::withoutGlobalScope('ignore_root')->find(Category::ROOT_ID);
+        $categories = Category::all();
+        [$c2, $c3, $c4, $c5, $c6, $c7, $c8, $c9, $c10, $c11, $c12, $c13, $c14, $c15, $c16, $c17, $c18] = $categories;
+
+        $this->assertEquals([Category::ROOT_ID, 1, 'Category 2', 2, 7], [$c2->parent_id, $c2->depth, $c2->name, $c2->lft, $c2->rgt]);
+        $this->assertEquals([$c2->id, 2, 'Category 14', 3, 4], [$c14->parent_id, $c14->depth, $c14->name, $c14->lft, $c14->rgt]);
+        $this->assertEquals([$c2->id, 2, 'Category 15', 5, 6], [$c15->parent_id, $c15->depth, $c15->name, $c15->lft, $c15->rgt]);
+        $this->assertEquals([Category::ROOT_ID, 1, 'Category 3', 8, 23], [$c3->parent_id, $c3->depth, $c3->name, $c3->lft, $c3->rgt]);
+        $this->assertEquals([$c3->id, 2, 'Category 7', 9, 10], [$c7->parent_id, $c7->depth, $c7->name, $c7->lft, $c7->rgt]);
+        $this->assertEquals([$c3->id, 2, 'Category 8', 11, 12], [$c8->parent_id, $c8->depth, $c8->name, $c8->lft, $c8->rgt]);
+        $this->assertEquals([$c3->id, 2, 'Category 9', 13, 14], [$c9->parent_id, $c9->depth, $c9->name, $c9->lft, $c9->rgt]);
+        $this->assertEquals([$c3->id, 2, 'Category 10', 15, 22], [$c10->parent_id, $c10->depth, $c10->name, $c10->lft, $c10->rgt]);
+        $this->assertEquals([$c10->id, 3, 'Category 16', 16, 17], [$c16->parent_id, $c16->depth, $c16->name, $c16->lft, $c16->rgt]);
+        $this->assertEquals([$c10->id, 3, 'Category 17', 18, 19], [$c17->parent_id, $c17->depth, $c17->name, $c17->lft, $c17->rgt]);
+        $this->assertEquals([$c10->id, 3, 'Category 18', 20, 21], [$c18->parent_id, $c18->depth, $c18->name, $c18->lft, $c18->rgt]);
+        $this->assertEquals([Category::ROOT_ID, 1, 'Category 4', 24, 25], [$c4->parent_id, $c4->depth, $c4->name, $c4->lft, $c4->rgt]);
+        $this->assertEquals([Category::ROOT_ID, 1, 'Category 5', 26, 31], [$c5->parent_id, $c5->depth, $c5->name, $c5->lft, $c5->rgt]);
+        $this->assertEquals([$c5->id, 2, 'Category 11', 27, 28], [$c11->parent_id, $c11->depth, $c11->name, $c11->lft, $c11->rgt]);
+        $this->assertEquals([$c5->id, 2, 'Category 12', 29, 30], [$c12->parent_id, $c12->depth, $c12->name, $c12->lft, $c12->rgt]);
+        $this->assertEquals([Category::ROOT_ID, 1, 'Category 6', 32, 35], [$c6->parent_id, $c6->depth, $c6->name, $c6->lft, $c6->rgt]);
+        $this->assertEquals([$c6->id, 2, 'Category 13', 33, 34], [$c13->parent_id, $c13->depth, $c13->name, $c13->lft, $c13->rgt]);
+        $this->assertEquals([1, 36], [$root->lft, $root->rgt]);
+    }
 }
