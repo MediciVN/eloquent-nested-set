@@ -342,7 +342,7 @@ trait NestedSetModel
 
         $getChildrenFunc = function ($nodes) use (&$getChildrenFunc, $groupNodes) {
             foreach ($nodes as $node) {
-                $node->setRelation('children', collect($groupNodes[$node->{static::primaryColumn()}] ?? []));
+                $node->children = $groupNodes[$node->{static::primaryColumn()}] ?? [];
                 $getChildrenFunc($node->children);
             }
         };
@@ -369,7 +369,7 @@ trait NestedSetModel
                 return;
             }
 
-            $children = $node->children->all();
+            $children = $node->children;
             $children[0]->{static::depthColumn()} = $node->{static::depthColumn()} + 1;
             $children[0]->{static::leftColumn()}  = $node->{static::leftColumn()} + 1;
             $fixPositionFunc($children[0]);
