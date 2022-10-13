@@ -1065,8 +1065,10 @@ class NestedSetModelTest extends TestCase
         $c3->name = "Category 333";
         $c3->parent_id = $c2->id;
         $c3->save();
-        $c3->refresh();
         $this->assertEquals("Category 333", $c3->name);
+        $this->assertEquals(3, $c3->lft);
+        $this->assertEquals(4, $c3->rgt);
+        $this->assertEquals(2, $c3->depth);
     }
 
     /** @test */
