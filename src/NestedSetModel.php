@@ -363,37 +363,29 @@ trait NestedSetModel
         $tree  = static::buildNestedTree($nodes);
 
         $fixPositionFunc = function ($node) use (&$fixPositionFunc) {
-            $children      = $node->children->all();
-            $childrenCount = count($children);
-
-            if (!$childrenCount) {
+            if (!($childrenCount = count($node->children))) {
                 $node->{static::rightColumn()} = $node->{static::leftColumn()} + 1;
                 $node->savePositionQuietly();
                 return;
             }
 
-            $firstChild = $children[0];
-            $firstChild->{static::depthColumn()} = $node->{static::depthColumn()} + 1;
-            $firstChild->{static::leftColumn()}  = $node->{static::leftColumn()} + 1;
-            $firstChild->{static::rightColumn()} = $firstChild->{static::leftColumn()} + 1;
-            $fixPositionFunc($firstChild);
+            $children = $node->children->all();
+            $children[0]->{static::depthColumn()} = $node->{static::depthColumn()} + 1;
+            $children[0]->{static::leftColumn()}  = $node->{static::leftColumn()} + 1;
+            $fixPositionFunc($children[0]);
 
             for ($i = 1; $i < $childrenCount; $i++) {
-                $child = $children[$i];
-                $child->{static::depthColumn()} = $node->{static::depthColumn()} + 1;
-                $child->{static::leftColumn()}  = $children[$i - 1]->{static::rightColumn()} + 1;
-                $child->{static::rightColumn()} = $child->{static::leftColumn()} + 1;
-                $fixPositionFunc($child);
+                $children[$i]->{static::depthColumn()} = $node->{static::depthColumn()} + 1;
+                $children[$i]->{static::leftColumn()}  = $children[$i - 1]->{static::rightColumn()} + 1;
+                $fixPositionFunc($children[$i]);
             }
 
-            $lastChild = $children[$childrenCount - 1];
-            $node->{static::rightColumn()} = $lastChild->{static::rightColumn()} + 1;
+            $node->{static::rightColumn()} = $children[$childrenCount - 1]->{static::rightColumn()} + 1;
             $node->savePositionQuietly();
         };
 
         $root = $tree[0];
         $root->{static::leftColumn()}  = 1;
-        $root->{static::rightColumn()} = 2;
         $root->{static::depthColumn()} = 0;
         $fixPositionFunc($root);
     }
@@ -504,6 +496,21 @@ trait NestedSetModel
     }
 
     /**
+     * Just refresh position fields of an instance even it has other changes
+     */
+    public function refreshPosition(): void
+    {
+        $fresh = static::withoutGlobalScope('ignore_root')
+            ->where('id', $this->id)
+            ->first();
+
+        $this->{static::parentIdColumn()} = $fresh->{static::parentIdColumn()};
+        $this->{static::leftColumn()}     = $fresh->{static::leftColumn()};
+        $this->{static::rightColumn()}    = $fresh->{static::rightColumn()};
+        $this->{static::depthColumn()}    = $fresh->{static::depthColumn()};
+    }
+
+    /**
      * @return void
      * @throws Throwable
      */
@@ -511,7 +518,7 @@ trait NestedSetModel
     {
         try {
             DB::beginTransaction();
-            $this->refresh();
+            $this->refreshPosition();
 
             $parent    = static::withoutGlobalScope('ignore_root')->findOrFail($this->{static::parentIdColumn()});
             $parentRgt = $parent->{static::rightColumn()};
@@ -525,7 +532,7 @@ trait NestedSetModel
                 ->update([static::leftColumn() => DB::raw(static::leftColumn() . " + 2")]);
 
             // Node mới sẽ được thêm vào sau (bên phải) các nodes cùng cha
-            $this->{static::depthColumn()} = $parent->{static::depthColumn()}+1;
+            $this->{static::depthColumn()} = $parent->{static::depthColumn()} + 1;
             $this->{static::leftColumn()}  = $parentRgt;
             $this->{static::rightColumn()} = $parentRgt + 1;
             $this->savePositionQuietly();
@@ -545,65 +552,57 @@ trait NestedSetModel
     {
         try {
             DB::beginTransaction();
-            $this->refresh();
+            $this->refreshPosition();
 
             if ($newParentId == $this->{static::primaryColumn()} || $this->hasDescendant($newParentId)) {
                 throw new NestedSetModelException("The given parent's " . static::primaryColumn() . " is invalid");
             }
 
-            $newParent    = static::withoutGlobalScope('ignore_root')->findOrFail($newParentId);
-            $currentLft   = $this->{static::leftColumn()};
-            $currentRgt   = $this->{static::rightColumn()};
-            $currentDepth = $this->{static::depthColumn()};
-            $width        = $this->getWidth();
-            $query        = static::withoutGlobalScope('ignore_root')->whereNot(static::primaryColumn(), $this->{static::primaryColumn()});
+            $newParent   = static::withoutGlobalScope('ignore_root')->findOrFail($newParentId);
+            $depthChange = $newParent->{static::depthColumn()} + 1 - $this->{static::depthColumn()};
+            $distance    = $newParent->{static::rightColumn()} - 1 - $this->{static::rightColumn()};
+            $width       = $this->getWidth();
+            $from        = $this->{static::rightColumn()} + 1;
+            $to          = $newParent->{static::rightColumn()};
 
-            // Tạm thời để left và right các node con của node hiện tại ở giá trị âm
-            $this->descendants()->update([
-                static::leftColumn()  => DB::raw(static::leftColumn() . " * (-1)"),
-                static::rightColumn() => DB::raw(static::rightColumn() . " * (-1)"),
-            ]);
+            if ($newParent->{static::rightColumn()} < $this->{static::rightColumn()}) {
+                $distance = $distance + $this->getWidth();
+                $width    = -$width;
+                $from     = $newParent->{static::rightColumn()};
+                $to       = $this->{static::leftColumn()};
+            }
 
-            // Giả định node hiện tại bị xóa khỏi cây, cập nhật các node bên phải của node hiện tại
-            (clone $query)
-                ->where(static::rightColumn(), '>', $this->{static::rightColumn()})
-                ->update([static::rightColumn() => DB::raw(static::rightColumn() . " - $width")]);
+            // Tạm thời để left và right của node hiện tại và các node con của nó ở giá trị âm
+            static::query()
+                ->where(static::leftColumn(), '>=', $this->{static::leftColumn()})
+                ->where(static::rightColumn(), '<=', $this->{static::rightColumn()})
+                ->update([
+                    static::leftColumn()  => DB::raw(static::leftColumn() . " * (-1)"),
+                    static::rightColumn() => DB::raw(static::rightColumn() . " * (-1)"),
+                ]);
 
-            (clone $query)
-                ->where(static::leftColumn(), '>', $this->{static::rightColumn()})
-                ->update([static::leftColumn() => DB::raw(static::leftColumn() . " - $width")]);
+            // Cập nhật các nodes trong khoảng thay đổi
+            static::withoutGlobalScope('ignore_root')
+                ->where(static::rightColumn(), '>=', $from)
+                ->where(static::rightColumn(), '<', $to)
+                ->update([static::rightColumn() => DB::raw(static::rightColumn() . " - ($width)")]);
 
-            // Tạo khoảng trống cho node hiện tại ở node cha mới, cập nhật các node bên phải của node cha mới
-            $newParent->refresh();
-            $newParentRgt = $newParent->{static::rightColumn()};
+            static::withoutGlobalScope('ignore_root')
+                ->where(static::leftColumn(), '>=', $from)
+                ->where(static::leftColumn(), '<', $to)
+                ->update([static::leftColumn() => DB::raw(static::leftColumn() . " - ($width)")]);
 
-            (clone $query)
-                ->where(static::rightColumn(), '>=', $newParentRgt)
-                ->update([static::rightColumn() => DB::raw(static::rightColumn() . " + $width")]);
-
-            (clone $query)
-                ->where(static::leftColumn(), '>', $newParentRgt)
-                ->update([static::leftColumn() => DB::raw(static::leftColumn() . " + $width")]);
-
-            // Cập nhật lại node hiện tại theo node cha mới
-            $this->{static::depthColumn()}    = $newParent->{static::depthColumn()}+1;
-            $this->{static::parentIdColumn()} = $newParentId;
-            $this->{static::leftColumn()}     = $newParentRgt;
-            $this->{static::rightColumn()}    = $newParentRgt + $width - 1;
-            $this->savePositionQuietly();
-
-            // Cập nhật lại các node con có left và right âm
-            $distance    = $this->{static::rightColumn()} - $currentRgt;
-            $depthChange = $this->{static::depthColumn()} - $currentDepth;
-
-            static::where(static::leftColumn(), '<', 0 - $currentLft)
-                ->where(static::rightColumn(), '>', 0 - $currentRgt)
+            // Cập nhật lại node đang có lft và rgt âm
+            static::query()
+                ->where(static::leftColumn(), '<=', -$this->{static::leftColumn()})
+                ->where(static::rightColumn(), '>=', -$this->{static::rightColumn()})
                 ->update([
                     static::leftColumn()  => DB::raw("ABS(" . static::leftColumn() . ") + $distance"),
                     static::rightColumn() => DB::raw("ABS(" . static::rightColumn() . ") + $distance"),
                     static::depthColumn() => DB::raw(static::depthColumn() . " + $depthChange"),
                 ]);
 
+            $this->refreshPosition();
             DB::commit();
         } catch (Throwable $th) {
             DB::rollBack();
@@ -620,7 +619,7 @@ trait NestedSetModel
         try {
             DB::beginTransaction();
             // make sure that no unsaved changes affect the calculation
-            $this->refresh();
+            $this->refreshPosition();
 
             // move the child nodes to the parent node of the deleted node
             $this->children()->update([
