@@ -501,7 +501,7 @@ trait NestedSetModel
     public function refreshPosition(): void
     {
         $fresh = static::withoutGlobalScope('ignore_root')
-            ->where('id', $this->id)
+            ->where(static::primaryColumn(), $this->{static::primaryColumn()})
             ->first();
 
         $this->{static::parentIdColumn()} = $fresh->{static::parentIdColumn()};
