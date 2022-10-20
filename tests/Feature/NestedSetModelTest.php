@@ -3,6 +3,7 @@
 namespace MediciVN\EloquentNestedSet\Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Benchmark;
 use MediciVN\EloquentNestedSet\NestedSetModelException;
 use MediciVN\EloquentNestedSet\Tests\Models\Category;
 use MediciVN\EloquentNestedSet\Tests\Models\CategorySoftDelete;
@@ -1074,7 +1075,7 @@ class NestedSetModelTest extends TestCase
     /** @test */
     public function it_can_fix_tree()
     {
-        Category::insert([
+        $data = [
             ["name" => "Category 2", "slug" => "category-2", "parent_id" => Category::rootId()],
             ["name" => "Category 3", "slug" => "category-3", "parent_id" => Category::rootId()],
             ["name" => "Category 4", "slug" => "category-4", "parent_id" => Category::rootId()],
@@ -1092,9 +1093,15 @@ class NestedSetModelTest extends TestCase
             ["name" => "Category 16", "slug" => "category-16", "parent_id" => 10],
             ["name" => "Category 17", "slug" => "category-17", "parent_id" => 10],
             ["name" => "Category 18", "slug" => "category-18", "parent_id" => 10]
-        ]);
+        ];
 
+        // foreach(range(1, 10000) as $i) {
+        //     $data[] = ["name" => "Category 18 $i", "slug" => "category-18-$i", "parent_id" => 10];
+        // }
+
+        Category::insert($data);
         Category::fixTree();
+        // Benchmark::dd(fn () => Category::fixTree(), 10);
 
         $root = Category::withoutGlobalScope('ignore_root')->find(Category::ROOT_ID);
         $categories = Category::all();
