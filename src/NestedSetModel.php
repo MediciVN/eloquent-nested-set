@@ -73,7 +73,7 @@ trait NestedSetModel
      *
      * @return string|null
      */
-    public static function queueConnection(): string|null
+    public static function queueConnection(): string | null
     {
         return defined(static::class . '::QUEUE_CONNECTION') ? static::QUEUE_CONNECTION : null;
     }
@@ -83,7 +83,7 @@ trait NestedSetModel
      *
      * @return string|null
      */
-    public static function queue(): string|null
+    public static function queue(): string | null
     {
         return defined(static::class . '::QUEUE') ? static::QUEUE : null;
     }
@@ -320,10 +320,10 @@ trait NestedSetModel
     /**
      * Build a nested tree based on parent's id
      *
-     * @param Collection $nodes
+     * @param Collection | array $nodes
      * @return Collection
      */
-    public static function buildNestedTree(Collection|array $nodes): Collection
+    public static function buildNestedTree(Collection | array $nodes): Collection
     {
         $tree = $ids = $parentIds = $groupNodes = [];
 
@@ -353,23 +353,72 @@ trait NestedSetModel
     }
 
     /**
-     * Fix tree base on parent's id
+     * Build raw query string to update node's position
      * 
+     * The left, right and depth must always be integer
+     * but can't be sure what their datatypes in the database are used
+     * so forcing them to be integer is the way to avoid SQL Injection
+     * 
+     * @return string
+     */
+    public function getUpdatePositionSQL(): string
+    {
+        $table    = $this->getTable();
+        $idColumn = $this->getKeyName();
+        $id       = (int) $this->{$idColumn};
+        $columns  = [
+            static::leftColumn() . " = " . ((int) $this->{static::leftColumn()}),
+            static::rightColumn() . " = " . ((int) $this->{static::rightColumn()}),
+            static::depthColumn() . " = " . ((int) $this->{static::depthColumn()}),
+        ];
+        $setString = implode(", ", $columns);
+
+        return "UPDATE $table SET $setString WHERE $idColumn = $id";
+    }
+
+    /**
+     * @param Collection | array $nodes
+     * @param int $patch
      * @return void
      */
-    public static function fixTree(): void
+    public static function bulkUpdatePosition(Collection | array $nodes, int $patch = 1000): void
+    {
+        $queries = $nodes->map(fn ($node) => $node->getUpdatePositionSQL());
+        $chunked = $queries->chunk($patch);
+
+        DB::beginTransaction();
+        try {
+            foreach ($chunked as $chunkedQueries) {
+                DB::unprepared(implode(";", $chunkedQueries->toArray()));
+            }
+            DB::commit();
+        } catch (Throwable $th) {
+            DB::rollback();
+            throw $th;
+        }
+    }
+
+    /**
+     * Fix tree base on parent's id
+     *
+     * @param int $patch
+     * @return void
+     */
+    public static function fixTree(int $patch = 1000): void
     {
         $nodes = static::withoutGlobalScope('ignore_root')->get();
-        $tree  = static::buildNestedTree($nodes);
+        $group = $nodes->groupBy(static::parentIdColumn());
+        $fixed = collect();
 
-        $fixPositionFunc = function ($node) use (&$fixPositionFunc) {
-            if (!($childrenCount = count($node->children))) {
+        $fixPositionFunc = function ($node) use (&$fixPositionFunc, $group, &$fixed) {
+            $children = $group->get($node->{static::primaryColumn()}, []);
+
+            if (!($childrenCount = count($children))) {
                 $node->{static::rightColumn()} = $node->{static::leftColumn()} + 1;
-                $node->savePositionQuietly();
+                $fixed->push($node);
                 return;
             }
 
-            $children = $node->children;
             $children[0]->{static::depthColumn()} = $node->{static::depthColumn()} + 1;
             $children[0]->{static::leftColumn()}  = $node->{static::leftColumn()} + 1;
             $fixPositionFunc($children[0]);
@@ -381,13 +430,14 @@ trait NestedSetModel
             }
 
             $node->{static::rightColumn()} = $children[$childrenCount - 1]->{static::rightColumn()} + 1;
-            $node->savePositionQuietly();
+            $fixed->push($node);
         };
 
-        $root = $tree[0];
+        $root = $nodes->where(static::primaryColumn(), static::rootId())->first();
         $root->{static::leftColumn()}  = 1;
         $root->{static::depthColumn()} = 0;
         $fixPositionFunc($root);
+        static::bulkUpdatePosition($fixed, $patch);
     }
 
     /**
